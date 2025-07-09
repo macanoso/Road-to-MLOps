@@ -4,6 +4,7 @@ import click
 import mlflow
 import optuna
 
+
 from optuna.samplers import TPESampler
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error
@@ -28,7 +29,7 @@ def load_pickle(filename):
     default=20,
     help="The number of parameter evaluations for the optimizer to explore",
 )
-def run_optimization(data_path: str, num_trials: int):
+def run_optimization(data_path: str, num_trials: int): # type: ignore
     X_train, y_train = load_pickle(os.path.join(data_path, "train.pkl"))
     X_val, y_val = load_pickle(os.path.join(data_path, "val.pkl"))
 
