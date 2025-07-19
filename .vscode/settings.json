@@ -1,6 +1,60 @@
 {
+    // Configuración específica para archivos Python
     "[python]": {
-        "editor.defaultFormatter": "ms-python.black-formatter"
+        // Usar Black como el formateador predeterminado
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        // Formatear el código al escribir
+        "editor.formatOnType": true,
+        // Formatear el código al guardar
+        "editor.formatOnSave": true,
+        // Acciones de código al guardar
+        "editor.codeActionsOnSave": {
+            // Arreglar todos los problemas automáticamente
+            "source.fixAll": "explicit",
+            // Organizar importaciones automáticamente
+            "source.organizeImports": "explicit",
+      }
     },
-    "python.formatting.provider": "none"
-}
+    // Habilitar sugerencias en línea en el editor
+    "editor.inlineSuggest.enabled": true,
+    // Mostrar una regla vertical en la columna 100
+    "editor.rulers": [100],
+    // Configuración específica para archivos Markdown
+    "[markdown]": {
+        // Formatear el código al guardar
+        "editor.formatOnSave": true,
+        // Formatear el código al pegar
+        "editor.formatOnPaste": true,
+        // Acciones de código al guardar
+        "editor.codeActionsOnSave": {
+            // Arreglar problemas de markdownlint
+            "source.fixAll.markdownlint": "explicit"
+        }
+    },
+    // Usar Pylance como el servidor de lenguaje para Python
+    "python.languageServer": "Pylance",
+    // Habilitar pylint para linting
+    "pylint.enabled": true,
+    // Argumentos para Black (usando un archivo de configuración específico)
+    "black-formatter.args": ["--config=.code_quality/pyproject_black.toml"],
+    // Argumentos para flake8 (usando un archivo de configuración específico)
+    "flake8.args": ["--config", ".code_quality/.flake8"],
+    // Argumentos para mypy (usando un archivo de configuración específico)
+    "mypy-type-checker.args": ["--config-file=.code_quality/mypy.ini"],
+    // Argumentos para pylint (usando un archivo de configuración específico)
+    "pylint.args": ["--rcfile=.code_quality/.pylintrc"],
+    // Argumentos para Bandit (usando un archivo de configuración específico)
+    "bandit.args": ["-c", ".code_quality/bandit.yaml"],
+    // Rutas adicionales para el análisis de Python cuadno el codigo esta en ./src
+    "python.analysis.extraPaths": [
+        "./src"
+    ],
+    // Argumentos para pytest
+    "python.testing.pytestArgs": [
+        "."
+    ],
+    // Deshabilitar unittest
+    "python.testing.unittestEnabled": false,
+    // Habilitar pytest
+    "python.testing.pytestEnabled": true
+  }
