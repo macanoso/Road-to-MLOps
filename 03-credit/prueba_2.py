@@ -17,45 +17,28 @@ from model_reviews import ModelReviewTotal
 from utils import get_or_create_experiment, use_flag, use_x, use_y
 
 
-# Simple trial logger for CSV fallback and MLflow logging after completion
-def log_trial_results(study, csv_path, mlflow_enabled=True):
-    """Log all completed trials to MLflow and save CSV backup"""
-    trials_data = []
+# MLflow callback following official best practices with parent-child runs
+class MLflowCallback:
+    def __init__(self, csv_path):
+        self.csv_path = csv_path
+        # Create CSV with header
+        pd.DataFrame(columns=['trial_number', 'objective_value', 'trial_state']).to_csv(csv_path, index=False)
     
-    for trial in study.trials:
-        trial_dict = {
-            'trial_number': trial.number,
-            'objective_value': trial.value,
-            'trial_state': trial.state.name,
-            **trial.params
-        }
-        trials_data.append(trial_dict)
+    def __call__(self, study, trial):
+        # Log to MLflow as CHILD run (nested under parent)
+        try:
+            with mlflow.start_run(run_name=f"trial_{trial.number}", nested=True):
+                mlflow.log_params(trial.params)
+                if trial.value is not None:
+                    mlflow.log_metric("objective_value", trial.value)
+                mlflow.log_param("trial_number", trial.number)
+                mlflow.log_param("trial_state", trial.state.name)
+        except:
+            pass
         
-        # Log each trial to MLflow as separate run (not nested)
-        if mlflow_enabled and trial.state == optuna.trial.TrialState.COMPLETE:
-            try:
-                with mlflow.start_run(run_name=f"trial_{trial.number:04d}", nested=False):
-                    # Log parameters
-                    mlflow.log_params(trial.params)
-                    # Log metrics
-                    if trial.value is not None:
-                        mlflow.log_metric("objective_value", trial.value)
-                    # Log trial info as parameters
-                    mlflow.log_param("trial_state", trial.state.name)
-                    mlflow.log_param("trial_number", trial.number)
-            except Exception as e:
-                print(f"Warning: MLflow logging failed for trial {trial.number}: {e}")
-                continue
-    
-    # Always save CSV backup
-    try:
-        trials_df = pd.DataFrame(trials_data)
-        trials_df.to_csv(csv_path, index=False)
-        print(f"Trial results saved to CSV: {csv_path}")
-    except Exception as e:
-        print(f"Error: Failed to save CSV backup: {e}")
-    
-    return trials_data
+        # Append to CSV immediately  
+        trial_data = {'trial_number': trial.number, 'objective_value': trial.value, 'trial_state': trial.state.name, **trial.params}
+        pd.DataFrame([trial_data]).to_csv(self.csv_path, mode='a', header=False, index=False)
 
 parser = argparse.ArgumentParser(description='Seleccion de variable')
 parser.add_argument('-m', '--module' ,
@@ -141,47 +124,47 @@ nombre_id = os.path.splitext(nombre_id)[0]
 # Configurar experimento de MLflow
 mlflow.set_experiment("Búsqueda de hiperparametros clean final")
 
-# Ejecutar optimización sin MLflow callbacks (logging después)
-sampler = optuna.samplers.RandomSampler(seed=42)
-study_lgb = optuna.create_study(sampler=sampler, direction="maximize")
-
-# Ejecutar optimización sin callback (pure Optuna)
-study_lgb.optimize(optimize_lgb, n_trials=args.n_trials, 
-                  show_progress_bar=True)
-
-# Obtener mejores resultados
-best_params_lgb = study_lgb.best_params
-best_score_lgb = study_lgb.best_value
-
-# CSV path for backup
+# CSV path
 csv_path = f"optuna_trials_{nombre_id}.csv"
 
-# Log all trials to MLflow AFTER completion and save CSV backup
-print("Logging trials to MLflow and saving CSV backup...")
-try:
-    trials_data = log_trial_results(study_lgb, csv_path, mlflow_enabled=True)
-    print(f"Successfully logged {len([t for t in study_lgb.trials if t.state == optuna.trial.TrialState.COMPLETE])} trials to MLflow")
-except Exception as e:
-    print(f"MLflow logging failed, but CSV backup was saved: {e}")
-    # Fallback: just save CSV manually
-    trials_data = []
-    for trial in study_lgb.trials:
-        trial_dict = {
-            'trial_number': trial.number,
-            'objective_value': trial.value,
-            'trial_state': trial.state.name,
-            **trial.params
-        }
-        trials_data.append(trial_dict)
+# Setup callback
+callback = MLflowCallback(csv_path)
+
+# Run optimization within PARENT MLflow run (official pattern)
+with mlflow.start_run(run_name=f"hyperparameter_optimization_{nombre_id}"):
+    # Log parent run info
+    mlflow.log_params({
+        "n_trials": args.n_trials,
+        "module": args.module if args.module else "default",
+        "data_file": args.file,
+        "script_name": __file__
+    })
     
-    trials_df = pd.DataFrame(trials_data)
-    trials_df.to_csv(csv_path, index=False)
-    print(f"Fallback: Trial results saved to CSV: {csv_path}")
+    # Run optimization with callback (child runs will be created)
+    sampler = optuna.samplers.RandomSampler(seed=42)
+    study_lgb = optuna.create_study(sampler=sampler, direction="maximize")
+    study_lgb.optimize(optimize_lgb, n_trials=args.n_trials, 
+                      show_progress_bar=True, callbacks=[callback])
+    
+    # Get results
+    best_params_lgb = study_lgb.best_params
+    best_score_lgb = study_lgb.best_value
+    
+    # Log summary results to parent run
+    mlflow.log_metrics({
+        "best_score": best_score_lgb,
+        "n_trials_completed": len(study_lgb.trials),
+        "n_trials_pruned": len([t for t in study_lgb.trials if t.state == optuna.trial.TrialState.PRUNED]),
+        "n_trials_failed": len([t for t in study_lgb.trials if t.state == optuna.trial.TrialState.FAIL])
+    })
+    mlflow.log_params({f"best_{k}": v for k, v in best_params_lgb.items()})
+    
+    # Log CSV as artifact to parent run
+    mlflow.log_artifact(csv_path, "optimization_data")
 
-
-
-print('LGBMClassifier Best Params:', best_params_lgb)
-print('LGBMClassifier Best Score:', best_score_lgb)
+print(f"\nBest Score: {best_score_lgb}")
+print(f"Best Params: {best_params_lgb}")
+print(f"Results saved to: {csv_path}")
 
 # Entrenar y guardar modelo final
 with mlflow.start_run(run_name=f"final_model_{nombre_id}"):
@@ -231,4 +214,4 @@ with mlflow.start_run(run_name=f"final_model_{nombre_id}"):
     # Log artifacts del modelo
     mlflow.log_artifacts(f"./MODELS/{nombre_carpeta}", "model_outputs")
 
-print(f"Experimento completado. Resultados guardados en {csv_path}")
+print(f"Experiment completed! Final model and results saved.")
